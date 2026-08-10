@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: mlops-dev-server
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 4 -b 0.0.0.0:$PORT api:app
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: RESEND_API_KEY
+        sync: false

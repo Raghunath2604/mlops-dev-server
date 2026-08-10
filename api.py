@@ -134,6 +134,13 @@ def init_db():
             msg TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS waitlist (
+            email TEXT PRIMARY KEY,
+            name TEXT,
+            source TEXT,
+            position INTEGER,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
 
         -- Insert demo API key (hash of "demo")
         INSERT OR IGNORE INTO api_keys (id, key_hash, name)
@@ -679,6 +686,49 @@ def audit():
             w.writerows(rows)
         return jsonify({"csv": buf.getvalue()})
     return jsonify({"data": rows, "total": len(rows)})
+
+# ── Waitlist ──────────────────────────────────────────────────────
+@app.route("/api/waitlist", methods=["POST"])
+def waitlist_join():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email", "").strip()
+    name = data.get("name", "").strip()
+    source = data.get("source", "").strip()
+    
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+        
+    db = get_db()
+    
+    # Check if already exists
+    existing = db.execute("SELECT position FROM waitlist WHERE email=?", (email,)).fetchone()
+    if existing:
+        return jsonify({"error": "This email is already on the waitlist!"}), 400
+        
+    # Get next position
+    count = db.execute("SELECT COUNT(*) FROM waitlist").fetchone()[0]
+    position = count + 1
+    
+    db.execute(
+        "INSERT INTO waitlist (email, name, source, position) VALUES (?, ?, ?, ?)",
+        (email, name, source, position)
+    )
+    db.commit()
+    
+    # Send email asynchronously or catch errors so signup succeeds
+    try:
+        from email_service import send_waitlist_confirmation
+        send_waitlist_confirmation(email, name, position)
+    except Exception as e:
+        app.logger.error(f"Failed to send waitlist email: {e}")
+        
+    return jsonify({"success": True, "data": {"position": position}})
+    
+@app.route("/api/waitlist/count", methods=["GET"])
+def waitlist_count():
+    db = get_db()
+    count = db.execute("SELECT COUNT(*) FROM waitlist").fetchone()[0]
+    return jsonify({"success": True, "data": {"count": count}})
 
 # ── Main ──────────────────────────────────────────────────────────
 if __name__ == "__main__":
